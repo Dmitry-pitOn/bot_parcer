@@ -42,7 +42,6 @@ def start(message):
     bot.send_message(message.chat.id, mess, reply_markup=keyboard_months)
     bot.register_next_step_handler(message, actual_month)
 
-
 def actual_month(message):
     bot.send_message(message.chat.id,
                      "Укажите количество страниц, которые нужно спарсить.\nНа каждой странице по 25 номеров. Если рассылка раз в неделю, то обычно хвататает 10 страниц: ")
