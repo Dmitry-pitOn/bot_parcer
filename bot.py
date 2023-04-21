@@ -12,6 +12,7 @@ import requests
 import os
 import pathlib
 import smtplib
+import re
 
 
 
@@ -36,7 +37,7 @@ def start(message):
 
     bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}!")
 
-    keyboard_months = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard_months = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard_months.add(*months)
     mess = f'Начнём работу! Выбери месяц рассылки\n' \
            f'(сегодня {date.today().strftime("%d.%m.%Y")}):'
@@ -44,40 +45,54 @@ def start(message):
     bot.register_next_step_handler(message, actual_month)
 
 def actual_month(message):
-    bot.send_message(message.chat.id,
-                     "Укажите количество страниц, которые нужно спарсить.\nНа каждой странице по 25 номеров. Если рассылка раз в неделю, то обычно хвататает 10 страниц: ")
     global real_month
     real_month = message.text
-    bot.register_next_step_handler(message, number_of_pages)
+    if real_month.capitalize() in months:
+        bot.send_message(message.chat.id,
+                         "Укажите количество страниц, которые нужно спарсить.\nНа каждой странице по 25 номеров. Если рассылка раз в неделю, то обычно хвататает 10 страниц: ")
+        bot.register_next_step_handler(message, number_of_pages)
+    else:
+        bot.send_message(message.chat.id, 'Неверно указан месяц... \nНажмите на квадрат с четырьмя точками и нажмите на кнопку с названием месяца,'
+                                          ' или напишите вручную русскими буквами: ')
+        bot.register_next_step_handler(message, actual_month)
+        return
 
 
 def number_of_pages(messages):
     global number_of_page
     number_of_page = messages.text.strip()
-    if number_of_page.isdigit():
-        number_of_page = int(messages.text.strip())
-        if int(number_of_page) < 20:
-            bot.send_message(messages.chat.id,
-                             'Отлично!\nТеперь напиши адрес электронной почты, на который присылать номера - и начнём:')
-            bot.register_next_step_handler(messages, start_parcer)
-        else:
-            bot.send_message(messages.chat.id, "Неверно указано количество страниц. Это должно быть число меньше 1000")
-
+    if number_of_page.isdigit() and int(number_of_page) < 20:
+        number_of_page = int(number_of_page)
+        bot.send_message(messages.chat.id,
+                         'Отлично!\nТеперь напиши адрес электронной почты, на который присылать номера - и начнём:')
+        bot.register_next_step_handler(messages, start_parcer)
+    else:
+        bot.send_message(messages.chat.id, "Неверно указано количество страниц. Введите число:")
+        bot.register_next_step_handler(messages, number_of_pages)
+        return
 
 def start_parcer(messages):
     global email
-    email = messages.text.strip().lower()
+    messages.text.strip().lower()
+    pattern = re.compile(r'[\w.-]+@[\w]+.ru|com|yandex|gmail')
+    result = pattern.search(messages.text.strip().lower())
+    if result:
+        email = result[0]
+    else:
+        bot.send_message(messages.chat.id, "Указан неверный почтовый адрес. Введите корректный почтовый адрес, оканчивающийся на .ru или .com:")
+        bot.register_next_step_handler(messages, start_parcer)
+        return
+
+    bot.send_message(messages.chat.id, "Идёт работа. Ожидайте...")
     main()
+
     ready_image = open("images/ready.jpg", 'rb')
     bot.send_photo(messages.chat.id, ready_image)
     bot.send_message(messages.chat.id, f"{list_messages[0]}\n{list_messages[1]}\n{list_messages[2]}\n{list_messages[3]}\n{list_messages[4]}")
-
-
-
     bot.send_message(messages.chat.id, "Номера собраны и отфильтрованы. Проверьте почту!")
 
 current_date = date.today()
-all_auto_list = []
+tel_numbers = []
 list_messages = []
 
 
@@ -107,8 +122,8 @@ def parcing_numbers(page):
         tel_numbers.append(f"{i['country']['code']}{i['number']}")
 
     mess_1 = f"Спарсено номеров: {len(tel_numbers)}"
+    mess_2 = f"Из них дубликатов: {len(tel_numbers) - len(set(tel_numbers))}"
     tel_numbers = set(tel_numbers)
-    mess_2 = f"Из них дубликатов: {len(tel_numbers)}"
 
     # добавляем информационные сообщения в список
     list_messages.append(mess_1)
@@ -129,10 +144,10 @@ def filter_numbers(set_numbers):
         with open(all_numbers_file, 'r', encoding='utf-8') as file:
             all_numbers = set(file.read().split())
 
-            # удаляем дубликаты из собранных номеров, сравнивая с общим списком
-            new_numbers = set_numbers - all_numbers
-            mess_3 = f"Дубликатов c общим списком номеров: {len(set_numbers.intersection(all_numbers))}"
-            len_all_numbers = len(new_numbers.union(all_numbers))
+        # удаляем дубликаты из собранных номеров, сравнивая с общим списком
+        new_numbers = set_numbers - all_numbers
+        mess_3 = f"Дубликатов c общим списком номеров: {len(set_numbers.intersection(all_numbers))}"
+        len_all_numbers = len(new_numbers.union(all_numbers))
 
         # добавляем в общий список новые номера и переименовываем файл
         with open(all_numbers_file, 'a', encoding='utf-8') as file:
@@ -187,7 +202,7 @@ def send_mail(send_to):
         all_files = [os.path.join(root, file) for file in files]
         last_file = max(all_files, key=os.path.getctime)
 
-    with open("send_html.html") as file:
+    with open("template_html/index.html", errors='ignore', encoding='utf-8') as file:
         template = file.read()
     with open(last_file, 'r', encoding='utf-8') as f:
         docfile = MIMEText(f.read())
