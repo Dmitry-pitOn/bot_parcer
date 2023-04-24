@@ -14,14 +14,15 @@ import pathlib
 import smtplib
 import re
 
-
-
 bot = telebot.TeleBot(config.TOKEN)
 email = ''
 number_of_page = ''
 real_month = ''
+current_date = date.today()
+tel_numbers = []
+list_messages = []
 months = ['Январь', "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь",
-              "Декабрь"]
+          "Декабрь"]
 
 
 @bot.message_handler(commands=['about'])
@@ -34,7 +35,6 @@ def about(message):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-
     bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}!")
 
     keyboard_months = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -44,6 +44,7 @@ def start(message):
     bot.send_message(message.chat.id, mess, reply_markup=keyboard_months)
     bot.register_next_step_handler(message, actual_month)
 
+
 def actual_month(message):
     global real_month
     real_month = message.text
@@ -52,8 +53,9 @@ def actual_month(message):
                          "Укажите количество страниц, которые нужно спарсить.\nНа каждой странице по 25 номеров. Если рассылка раз в неделю, то обычно хвататает 10 страниц: ")
         bot.register_next_step_handler(message, number_of_pages)
     else:
-        bot.send_message(message.chat.id, 'Неверно указан месяц... \nНажмите на квадрат с четырьмя точками и нажмите на кнопку с названием месяца,'
-                                          ' или напишите вручную русскими буквами: ')
+        bot.send_message(message.chat.id,
+                         'Неверно указан месяц... \nНажмите на квадрат с четырьмя точками и нажмите на кнопку с названием месяца,'
+                         ' или напишите вручную русскими буквами: ')
         bot.register_next_step_handler(message, actual_month)
         return
 
@@ -71,6 +73,7 @@ def number_of_pages(messages):
         bot.register_next_step_handler(messages, number_of_pages)
         return
 
+
 def start_parcer(messages):
     global email
     messages.text.strip().lower()
@@ -79,7 +82,8 @@ def start_parcer(messages):
     if result:
         email = result[0]
     else:
-        bot.send_message(messages.chat.id, "Указан неверный почтовый адрес. Введите корректный почтовый адрес, оканчивающийся на .ru или .com:")
+        bot.send_message(messages.chat.id,
+                         "Указан неверный почтовый адрес. Введите корректный почтовый адрес, оканчивающийся на .ru или .com:")
         bot.register_next_step_handler(messages, start_parcer)
         return
 
@@ -88,12 +92,10 @@ def start_parcer(messages):
 
     ready_image = open("images/ready.jpg", 'rb')
     bot.send_photo(messages.chat.id, ready_image)
-    bot.send_message(messages.chat.id, f"{list_messages[0]}\n{list_messages[1]}\n{list_messages[2]}\n{list_messages[3]}\n{list_messages[4]}")
+    bot.send_message(messages.chat.id,
+                     f"{list_messages[0]}\n{list_messages[1]}\n{list_messages[2]}\n{list_messages[3]}\n{list_messages[4]}")
     bot.send_message(messages.chat.id, "Номера собраны и отфильтрованы. Проверьте почту!")
-
-current_date = date.today()
-tel_numbers = []
-list_messages = []
+    list_messages.clear()
 
 
 def parcing_numbers(page):
@@ -101,21 +103,23 @@ def parcing_numbers(page):
         "accept": "*/*",
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36"
     }
+    proxy = {'https': f'http://{config.proxy_login}:{config.proxy_password}@149.126.236.24:9363'}
     response_list = []
     for number in range(1, page + 1):
         url = f"https://cars.av.by/filter?place_city[0]=7&place_region[0]=1002&page={number}&sort=4"
-        src = requests.get(url, headers=headers)
-        result = src.text
+        with requests.Session() as sess:
+            src = sess.get(url, headers=headers, proxies=proxy)
+            result = src.text
 
-        soup = BeautifulSoup(result, "lxml")
-        id_link = soup.find_all(class_="listing-item__link")
+            soup = BeautifulSoup(result, "lxml")
+            id_link = soup.find_all(class_="listing-item__link")
 
-        for i in id_link:
-            id_list = i.get("href").split("/")
-            link_with_id = f"https://api.av.by/offers/{id_list[-1]}/phones"
-            response = requests.get(link_with_id).json()
-            if isinstance(response, list):
-                response_list.append(response[0])
+            for i in id_link:
+                id_list = i.get("href").split("/")
+                link_with_id = f"https://api.av.by/offers/{id_list[-1]}/phones"
+                response = sess.get(link_with_id).json()
+                if isinstance(response, list):
+                    response_list.append(response[0])
 
     tel_numbers = []
     for i in response_list:
